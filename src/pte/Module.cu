@@ -69,7 +69,7 @@ pybind11::tuple iint(
 }
 
 
-torch::Tensor inside(
+torch::Tensor geometryMask(
         torch::Tensor & vert,
         torch::Tensor & vertPtr,
         torch::Tensor & point
@@ -80,7 +80,7 @@ torch::Tensor inside(
 
     torch::Tensor mask = torch::empty(
             {point.size(0)},
-            torch::TensorOptions().dtype(torch::kBool).device(point.device())
+            torch::TensorOptions().dtype(torch::kInt).device(point.device())
     );
 
     integral::insidePolygonTest(
@@ -93,7 +93,7 @@ torch::Tensor inside(
             vertMax.index({1}).item<float>(),
             reinterpret_cast<float2 *>(point.data_ptr<float>()),
             static_cast<int>(point.size(0)),
-            mask.data_ptr<bool>()
+            mask.data_ptr<int>()
     );
 
     return mask;

@@ -18,8 +18,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     );
 
     m.def(
-            "inside",
-            pte::inside,
+            "geometry_mask",
+            pte::geometryMask,
             "v"_a,
             "ptr"_a,
             "point"_a,

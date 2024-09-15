@@ -32,6 +32,7 @@ float2 operator-(float2 a, float2 b)
 }
 
 
+
 constexpr float kCrossEps {1e-3f};
 
 
@@ -44,11 +45,9 @@ void windingNumber(
         const float2 * __restrict__ v,
         int vLen,
         float2 s,
-        bool * __restrict__ onEdge,
         int * __restrict__ w
 )
 {
-    *onEdge = false;
     *w = 0;
 
     float2 p = v[vLen - 1];
@@ -62,7 +61,8 @@ void windingNumber(
 
         if (abs(cs) < kCrossEps and dot(p - s, d - s) < kCrossEps)
         {
-            *onEdge = true;
+            // On edge.
+            *w = 1;
             return;
         }
 
@@ -92,68 +92,57 @@ void pointInPolygonTest(
         const int * __restrict__ vertPtr,
         int vertPtrLen,
         float2 s,
-        bool * __restrict__ flag
+        int * __restrict__ flag
 )
 {
-    bool onEdge = false;
     int w = 0;
-    windingNumber(vert, vertPtr[1], s, &onEdge, &w);
+    windingNumber(vert, vertPtr[1], s, &w);
 
-    if (onEdge)
+    if (w == 0)
     {
-        *flag = true;
-        return;
-    }
-    else if (w == 0)
-    {
-        *flag = false;
+        *flag = 0;
         return;
     }
 
     for (int i = 2; i != vertPtrLen; ++i)
     {
-        windingNumber(vert + vertPtr[i - 1], vertPtr[i] - vertPtr[i - 1], s, &onEdge, &w);
+        windingNumber(vert + vertPtr[i - 1], vertPtr[i] - vertPtr[i - 1], s, &w);
 
-        if (onEdge)
+        if (w != 0)
         {
-            *flag = true;
-            return;
-        }
-        else if (w != 0)
-        {
-            *flag = false;
+            *flag = i << 1;
             return;
         }
     }
 
-    *flag = true;
+    *flag = 2;
 }
 
 }  // namespace anomynous
 
 
-__global__
-void insideTest(
-        const float2 * __restrict__ vert,
-        const int * __restrict__ vertPtr,
-        int vertPtrLen,
-        const float2 * __restrict__ sample,
-        int numSamples,
-        bool * __restrict__ mask
-)
-{
-    auto i = static_cast<int>(blockIdx.x * (blockDim.x * blockDim.y) + threadIdx.y * blockDim.x + threadIdx.x);
-
-    if (i < numSamples)
-    {
-        float2 s = sample[i];
-
-        bool flag;
-        pointInPolygonTest(vert, vertPtr, vertPtrLen, s, &flag);
-
-        mask[i] = flag;
-    }
-}
+//__global__
+//void insideTest(
+//        const float2 * __restrict__ vert,
+//        const int * __restrict__ vertPtr,
+//        int vertPtrLen,
+//        const float2 * __restrict__ sample,
+//        int numSamples,
+//        bool * __restrict__ mask
+//)
+//{
+//    auto i = static_cast<int>(blockIdx.x * (blockDim.x * blockDim.y) + threadIdx.y * blockDim.x + threadIdx.x);
+//
+//    if (i < numSamples)
+//    {
+//        float2 s = sample[i];
+//
+//        bool flag;
+//        pointInPolygonTest(vert, vertPtr, vertPtrLen, s, &flag);
+//
+//        mask[i] = flag;
+//    }
+//}
 
 
 __global__
@@ -167,7 +156,7 @@ void insideTestWithBox(
         float yMax,
         const float2 * __restrict__ point,
         int pointLen,
-        bool * __restrict__ mask
+        int * __restrict__ mask
 )
 {
     auto i = static_cast<int>(blockIdx.x * (blockDim.x * blockDim.y) + threadIdx.y * blockDim.x + threadIdx.x);
@@ -178,11 +167,11 @@ void insideTestWithBox(
 
         if (s.x < xMin or xMax < s.x or s.y < yMin or yMax < s.y)
         {
-            mask[i] = false;
+            mask[i] = 0;
             return;
         }
 
-        bool flag;
+        int flag;
         pointInPolygonTest(vert, vertPtr, vertPtrLen, s, &flag);
 
         mask[i] = flag;

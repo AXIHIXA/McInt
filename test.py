@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import typing
 
@@ -8,7 +9,7 @@ import numpy as np
 import shapely
 import torch
 
-import build.pte as pte
+import pte
 
 
 def plt_subplot(dic: typing.Dict[str, np.ndarray],
@@ -99,20 +100,46 @@ def dump_data(image_size: int) -> None:
     exit(123)
 
 
+class Integrate(torch.autograd.Function):
+    """
+    Differentiable Integrator.
+    """
+    @staticmethod
+    def forward(
+            ctx: typing.Any,
+            v: torch.Tensor,
+            ptr: torch.Tensor,
+            x: torch.Tensor,
+            f: float
+    ) -> torch.Tensor:
+        y, grad_v = pte.iint(v, ptr, x, f)
+        ctx.save_for_backward(v, ptr, x, torch.tensor([f], dtype=torch.float32).to(v.device), grad_v)
+        return y
+
+    @staticmethod
+    def backward(
+            ctx: typing.Any,
+            grad_output: torch.Tensor
+    ) -> typing.Tuple[torch.Tensor, None, None, None]:
+        v, ptr, x, f, grad_v = ctx.saved_tensors
+        v: torch.Tensor
+        ptr: torch.Tensor
+        x: torch.Tensor
+        f: torch.Tensor
+        grad_v: torch.Tensor
+
+        return grad_v, None, None, None
+
+
 # noinspection PyUnboundLocalVariable
 def main() -> None:
+    np.set_printoptions(threshold=sys.maxsize, linewidth=sys.maxsize)
+    torch.set_printoptions(threshold=sys.maxsize, linewidth=sys.maxsize, sci_mode=False)
+
     image_size: int = 129
     device: torch.device = torch.device('cuda:0')
-
-    # dump_data(image_size)
-
-    vv = torch.from_numpy(np.load('var/vv.npy')).int().float().contiguous().to(device)
-    ptr = torch.from_numpy(np.load('var/ptr.npy')).int().contiguous().to(device)
-
     axi: torch.Tensor = torch.arange(image_size, dtype=torch.float32, device=device)
     pt: torch.Tensor = torch.cartesian_prod(axi, axi)
-    mask: torch.Tensor = pte.inside(vv, ptr, pt)
-    x0: torch.Tensor = pt[mask]
 
     # img: torch.Tensor = torch.zeros((image_size, image_size), dtype=torch.int, device=device)
     # img[pt[:, 0].int(), pt[:, 1].int()] = mask.int()
@@ -122,37 +149,59 @@ def main() -> None:
     # print(pt[mask].shape, pt[mask].is_contiguous())
     # exit(1)
 
+    # duplication: int = 1
+    #
+    # if 1 < duplication:
+    #     pte.iint(vv, ptr, x0, -0.008)  # warmup
+    #
+    # st = time.perf_counter_ns()
+    # for _ in range(duplication):
+    #     res, _ = pte.iint(vv, ptr, x0, -0.007)
+    # et = time.perf_counter_ns()
+    # print(f'{(et - st) / 1e6 / duplication} ms')
+    #
+    # if 1 < duplication:
+    #     return
+
+    iint = Integrate.apply
+
+    vv = torch.from_numpy(np.load('var/vv.npy')).int().float().contiguous().to(device)
+    ptr = torch.from_numpy(np.load('var/ptr.npy')).int().contiguous().to(device)
+
+    inside_mask: torch.Tensor = pte.geometry_mask(vv, ptr, pt)
+    plt_subplot({'mask': inside_mask.detach().cpu().numpy().reshape(image_size, image_size)})
+    return
+
+
+
+
     vv.requires_grad_(True)
+    x0: torch.Tensor = pt[pte.inside(vv, ptr, pt)]
+    y0 = iint(vv, ptr, x0, -0.07)
+    loss0 = y0.sum()
+    loss0.backward()
 
-    duplication: int = 1
+    for v, vg in zip(vv, vv.grad):
+        print(v, vg)
 
-    if 1 < duplication:
-        pte.iint(vv, ptr, x0, -0.008)  # warmup
+    vv1 = vv.detach().clone()
+    vv1.grad = None
+    vv1[10] += torch.FloatTensor([0.0, 1.0]).to(vv1)
+    x1 = pt[pte.inside(vv1, ptr, pt)]
+    y1 = iint(vv1, ptr, x1, -0.07)
 
-    st = time.perf_counter_ns()
-    for _ in range(duplication):
-        res, grad = pte.iint(vv, ptr, x0, -0.007)
-    et = time.perf_counter_ns()
-    print(f'{(et - st) / 1e6 / duplication} ms')
+    img0: torch.Tensor = torch.zeros((image_size, image_size), dtype=torch.float32, device=device)
+    img1: torch.Tensor = img0.clone()
+    img0[x0[:, 0].int(), x0[:, 1].int()] = y0.detach()
+    img1[x1[:, 0].int(), x1[:, 1].int()] = y1.detach()
 
-    if 1 < duplication:
-        return
+    print(vv[10], img1[vv1[10, 0].int(), vv1[10, 1].int()] - img0[vv[10, 0].int(), vv[10, 1].int()])
 
-    res: torch.Tensor
-    grad: typing.Optional[torch.Tensor]
-
-    print(vv)
-    print(grad)
-
-    img: torch.Tensor = torch.zeros((image_size, image_size), dtype=torch.float32, device=device)
-    mask: torch.Tensor = torch.zeros_like(img, dtype=torch.uint8)
-
-    img[x0[:, 0].int(), x0[:, 1].int()] = res
-    mask[x0[:, 0].int(), x0[:, 1].int()] = 1
-
-    img_np: np.ndarray = img.cpu().numpy()
-    lap_np: np.ndarray = laplacian(img)
-    plt_subplot({'img': img_np, 'lap': lap_np})
+    img0_np: np.ndarray = img0.cpu().numpy()
+    img1_np: np.ndarray = img1.cpu().numpy()
+    lap0_np: np.ndarray = laplacian(img0)
+    lap1_np: np.ndarray = laplacian(img1)
+    plt_subplot({'img0': img0_np, 'img1': img1_np, 'lap0': lap0_np})
 
 
 if __name__ == '__main__':

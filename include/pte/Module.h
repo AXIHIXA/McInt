@@ -15,7 +15,7 @@ pybind11::tuple iint(
 );
 
 
-torch::Tensor inside(
+torch::Tensor geometryMask(
         torch::Tensor & vert,
         torch::Tensor & vertPtr,
         torch::Tensor & point

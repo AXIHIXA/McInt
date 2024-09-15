@@ -31,7 +31,7 @@ void insidePolygonTest(
         float yMax,
         const float2 * __restrict__ point,
         int pointLen,
-        bool * __restrict__ mask
+        int * __restrict__ mask
 );
 
 }  // namespace pte

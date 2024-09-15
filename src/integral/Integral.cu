@@ -11,6 +11,7 @@
 #include "integral/Geometry.cuh"
 #include "integral/Integral.h"
 #include "integral/Green.cuh"
+#include "integral/Grid.cuh"
 #include "util/CudaUtil.h"
 
 
@@ -20,15 +21,15 @@ namespace integral
 namespace
 {
 
-inline std::pair<int, int> padToNk(int a, int n)
+inline int padToNk(int a, int n)
 {
     if (int r = a % n; r == 0)
     {
-        return {a, 0};
+        return a;
     }
     else
     {
-        return {a + n - r, r};
+        return a + n - r;
     }
 }
 
@@ -56,7 +57,7 @@ void laplacianGreenFunctionIntegral(
     int numSamplesPerBlock = kBlockSize * kBlockUnrollFactor;
     unsigned int numBlocks = (sampleLen + numSamplesPerBlock - 1) / numSamplesPerBlock;
     int segmentLen = static_cast<int>(numBlocks * kBlockSize);
-    auto [segmentLenPadded, remainder] = padToNk(segmentLen, 32);
+    int segmentLenPadded = padToNk(segmentLen, 32);
     // int numSamplesPadded = numSamples;  // Test for non-aligned pattern. Slower!
     thrust::device_vector<float> dBuffer(segmentLenPadded * kCenterUnrollFactor, 0.0f);
     dim3 intergralGridDim {numBlocks, 1U, 1U};
@@ -159,7 +160,7 @@ void laplacianGreenFunctionIntegralGradient(
     int numSamplesPerBlock = kBlockSize * kBlockUnrollFactor;
     unsigned int numBlocks = (sampleLen + numSamplesPerBlock - 1) / numSamplesPerBlock;
     int segmentLen = static_cast<int>(numBlocks * kBlockSize);
-    auto [segmentLenPadded, remainder] = padToNk(segmentLen, 16);
+    int segmentLenPadded = padToNk(segmentLen, 16);
     // int numSamplesPadded = numSamples;  // Test for non-aligned pattern. Slower!
     thrust::device_vector<float2> dBuffer(segmentLenPadded * kCenterUnrollFactor, {0.0f, 0.0f});
     dim3 intergralGridDim {numBlocks, 1U, 1U};
@@ -259,17 +260,37 @@ void iint(
         float2 * __restrict__ grad
 )
 {
-    unsigned int seed = std::random_device()();
+    constexpr int imageSize = 129;
+    constexpr int pixelGranularity = 16;
+    constexpr float step = 1.0f / static_cast<float>(pixelGranularity);
+    xMin = 0.0f;
+    xMax = imageSize;
+    yMin = 0.0f;
+    yMax = imageSize;
 
-    thrust::device_vector<float2> dSample(kNumSamples);
+    int initialNumSamples = imageSize * imageSize * pixelGranularity * pixelGranularity;
+    thrust::device_vector<float2> dSample(initialNumSamples);
 
-    thrust::transform(
-            thrust::device,
-            thrust::make_counting_iterator(0LL),
-            thrust::make_counting_iterator(kNumSamples),
-            dSample.begin(),
-            UniformFloat2(seed, xMin, xMax, yMin, yMax)
+    dim3 sampleGenerationGridDim {
+        static_cast<unsigned int>(imageSize * pixelGranularity + kBlockDim.x - 1U) / kBlockDim.x,
+        static_cast<unsigned int>(imageSize * pixelGranularity + kBlockDim.y - 1U) / kBlockDim.y,
+        1U
+    };
+    generateSquareGridSamples<<<sampleGenerationGridDim, kBlockDim>>>(
+            xMin, xMax, yMin, yMax, step, dSample.data().get()
     );
+    CUDA_CHECK_LAST_ERROR();
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+//    unsigned int seed = std::random_device()();
+//
+//    thrust::transform(
+//            thrust::device,
+//            thrust::make_counting_iterator(0LL),
+//            thrust::make_counting_iterator(kNumSamples),
+//            dSample.begin(),
+//            UniformFloat2(seed, xMin, xMax, yMin, yMax)
+//    );
 
 //    {
 //        thrust::device_vector<bool> dMask(kNumSamples, false);
@@ -294,7 +315,7 @@ void iint(
 //    }
 
     float boxArea = (xMax - xMin) * (yMax - yMin);
-    float scale = boxArea / static_cast<float>(kNumSamples);
+    float scale = boxArea / static_cast<float>(initialNumSamples);
 
 #ifdef DEBUG_INSIDE_MASK
     std::printf(
@@ -343,7 +364,7 @@ void insidePolygonTest(
         float yMax,
         const float2 * __restrict__ point,
         int pointLen,
-        bool * __restrict__ mask
+        int * __restrict__ mask
 )
 {
     dim3 insideTestGridDim {static_cast<unsigned int>(pointLen + kBlockSize - 1U) / kBlockSize, 1U, 1U};
