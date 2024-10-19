@@ -6,9 +6,13 @@ project(PTE CUDA CXX)
 # NVIDIA Geforce RTX 2080 Ti has Compute Capability 7.5
 # https://developer.nvidia.com/cuda-gpus
 # https://stackoverflow.com/questions/67794606/cmake-cuda-architecture-flags
+# NOTE: To build for multiple architectures, set target property directly:
+# set_target_properties(${TORCH_EXTENSION} PROPERTIES CUDA_ARCHITECTURES "70;75;80")
+# CMAKE_CUDA_ARCHITECTURES is just a hint.
 set(CMAKE_CUDA_ARCHITECTURES 75)
 set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_VERBOSE_MAKEFILE ON)
 
 # Set to root directory of your virtual environment. 
 set(Python_ROOT_DIR "$ENV{HOME}/opt/anaconda3/envs/py3")
@@ -47,6 +51,7 @@ set_target_properties(${TORCH_EXTENSION} PROPERTIES
         OUTPUT_NAME ${TORCH_EXTENSION} 
         SUFFIX ".so"
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/${TORCH_EXTENSION}"
+        # CUDA_ARCHITECTURES "70;75;80"
 )
 target_include_directories(${TORCH_EXTENSION} PUBLIC
         ${CMAKE_SOURCE_DIR}/include
