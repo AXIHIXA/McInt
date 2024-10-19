@@ -83,7 +83,7 @@ target_compile_options(${TORCH_EXTENSION} PUBLIC
         --expt-extended-lambda
         --expt-relaxed-constexpr
         --use_fast_math
-        -Xptxas -v
+        -Xptxas -v,-warn-lmem-usage,-warn-spills
         -lineinfo
 )
 target_link_directories(${TORCH_EXTENSION} PUBLIC
