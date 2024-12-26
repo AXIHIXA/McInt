@@ -3,8 +3,10 @@
 #include <cuda_runtime.h>
 #include <cub/cub.cuh>
 #include <thrust/device_vector.h>
+#include <thrust/execution_policy.h>
 #include <thrust/host_vector.h>
 #include <thrust/iterator/zip_iterator.h>
+#include <thrust/sequence.h>
 
 #include "integral/Constant.cuh"
 #include "integral/Functor.cuh"
